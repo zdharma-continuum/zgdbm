@@ -29,7 +29,7 @@ if [ ! -e "${ZGDBM_REPO_DIR}/module/Src/Modules/db_gdbm.so" ]; then
     builtin print "----------------------------"
     builtin print "${fg_bold[magenta]}psprint${reset_color}/${fg_bold[yellow]}zgdbm${reset_color} is building..."
     builtin print "----------------------------"
-    ( builtin cd "${ZGDBM_REPO_DIR}/module"; [[ ! -e Makefile ]] && ./configure )
+    ( builtin cd "${ZGDBM_REPO_DIR}/module"; [[ ! -e Makefile ]] && CFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib ./configure )
     command make -C "${ZGDBM_REPO_DIR}/module"
 
     () {
@@ -45,7 +45,7 @@ elif [[ ! -f "${ZGDBM_REPO_DIR}/module/COMPILED_AT" || ( "${ZGDBM_REPO_DIR}/modu
 
         if [[ "${recompile_request_ts:-1}" -gt "${compiled_at_ts:-0}" ]]; then
             builtin echo "${fg_bold[red]}SINGLE RECOMPILETION REQUESTED BY PLUGIN'S (ZGDBM) UPDATE${reset_color}"
-            ( builtin cd "${ZGDBM_REPO_DIR}/module"; ./configure )
+            ( builtin cd "${ZGDBM_REPO_DIR}/module"; CFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib ./configure )
             command make -C "${ZGDBM_REPO_DIR}/module" clean
             command make -C "${ZGDBM_REPO_DIR}/module"
 
