@@ -1,4 +1,3 @@
-# zgdbm
 
 ## Zgdbm's Zstyles
 

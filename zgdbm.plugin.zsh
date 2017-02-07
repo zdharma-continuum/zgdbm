@@ -29,10 +29,17 @@ if [ ! -e "${ZGDBM_REPO_DIR}/module/Src/Modules/zgdbm.so" ]; then
     builtin print "----------------------------"
     builtin print "${fg_bold[magenta]}psprint${reset_color}/${fg_bold[yellow]}zgdbm${reset_color} is building..."
     builtin print "----------------------------"
-    ( builtin cd "${ZGDBM_REPO_DIR}/module"; [[ ! -e Makefile ]] && CFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib ./configure )
-    command make -C "${ZGDBM_REPO_DIR}/module"
 
     () {
+        # Get CPPFLAGS, CFLAGS, LDFLAGS
+        local cppf cf ldf
+        zstyle -s ":plugin:zgdbm" cppflags cppf || cppf="-I/usr/local/include"
+        zstyle -s ":plugin:zgdbm" cflags cf || cf=""
+        zstyle -s ":plugin:zgdbm" ldflags ldf || ldf="-L/usr/local/lib"
+
+        ( builtin cd "${ZGDBM_REPO_DIR}/module"; [[ ! -e Makefile ]] && CPPFLAGS="$cppf" CFLAGS="$cf" LDFLAGS="$ldf" ./configure )
+        command make -C "${ZGDBM_REPO_DIR}/module"
+
         local ts="${EPOCHSECONDS}"
         [[ -z "$ts" ]] && ts="$( date +%s )"
         builtin echo "$ts" >! "${ZGDBM_REPO_DIR}/module/COMPILED_AT"
@@ -45,7 +52,14 @@ elif [[ ! -f "${ZGDBM_REPO_DIR}/module/COMPILED_AT" || ( "${ZGDBM_REPO_DIR}/modu
 
         if [[ "${recompile_request_ts:-1}" -gt "${compiled_at_ts:-0}" ]]; then
             builtin echo "${fg_bold[red]}SINGLE RECOMPILETION REQUESTED BY PLUGIN'S (ZGDBM) UPDATE${reset_color}"
-            ( builtin cd "${ZGDBM_REPO_DIR}/module"; CFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib ./configure )
+
+            # Get CPPFLAGS, CFLAGS, LDFLAGS
+            local cppf cf ldf
+            zstyle -s ":plugin:zgdbm" cppflags cppf || cppf="-I/usr/local/include"
+            zstyle -s ":plugin:zgdbm" cflags cf || cf=""
+            zstyle -s ":plugin:zgdbm" ldflags ldf || ldf="-L/usr/local/lib"
+
+            ( builtin cd "${ZGDBM_REPO_DIR}/module"; CPPFLAGS="$cppf" CFLAGS="$cf" LDFLAGS="$ldf" ./configure )
             command make -C "${ZGDBM_REPO_DIR}/module" clean
             command make -C "${ZGDBM_REPO_DIR}/module"
 
