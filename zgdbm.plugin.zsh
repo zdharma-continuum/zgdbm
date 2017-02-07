@@ -55,3 +55,9 @@ elif [[ ! -f "${ZGDBM_REPO_DIR}/module/COMPILED_AT" || ( "${ZGDBM_REPO_DIR}/modu
         fi
     }
 fi
+
+# Finally load the module - if it has compiled
+if [[ -e "${ZGDBM_REPO_DIR}/module/Src/Modules/db_gdbm.so" ]]; then
+    MODULE_PATH="${ZGDBM_REPO_DIR}/module/Src/Modules":"$MODULE_PATH"
+    zmodload db_gdbm
+fi
