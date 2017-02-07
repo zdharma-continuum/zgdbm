@@ -1,5 +1,5 @@
 /*
- * db_gdbm.c - bindings for gdbm
+ * zgdbm.c - bindings for gdbm
  *
  * This file is part of zsh, the Z shell.
  *
@@ -31,8 +31,8 @@
  *
  */
 
-#include "db_gdbm.mdh"
-#include "db_gdbm.pro"
+#include "zgdbm.mdh"
+#include "zgdbm.pro"
 
 /*
  * Make sure we have all the bits I'm using for memory mapping, otherwise

@@ -9,4 +9,4 @@ load=no
 
 autofeatures="b:ztie b:zuntie"
 
-objects="db_gdbm.o"
+objects="zgdbm.o"
