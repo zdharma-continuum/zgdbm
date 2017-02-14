@@ -39,6 +39,8 @@
 #endif
 
 static Param createhash( char *name, int flags );
+static int append_tied_name( const char *name );
+static int remove_tied_name( const char *name );
 
 /*
  * Make sure we have all the bits I'm using for memory mapping, otherwise
@@ -84,6 +86,16 @@ static const struct gsu_hash gdbm_hash_gsu =
 static struct builtin bintab[] = {
     BUILTIN("ztie", 0, bin_ztie, 1, -1, 0, "d:f:r", NULL),
     BUILTIN("zuntie", 0, bin_zuntie, 1, -1, 0, "u", NULL),
+};
+
+#define ROARRPARAMDEF(name, var) \
+    { name, PM_ARRAY | PM_READONLY, (void *) var, NULL,  NULL, NULL, NULL }
+
+/* Holds names of all tied parameters */
+char **gdbm_tied;
+
+static struct paramdef patab[] = {
+    ROARRPARAMDEF( "gdbm_tied", &gdbm_tied ),
 };
 
 /**/
@@ -140,9 +152,10 @@ bin_ztie(char *nam, char **args, Options ops, UNUSED(int func))
     }
 
     dbf = gdbm_open(resource_name, 0, read_write, 0666, 0);
-    if(dbf)
+    if(dbf) {
 	addmodulefd(gdbm_fdesc(dbf), FDT_MODULE);
-    else {
+        append_tied_name(pmname);
+    } else {
 	zwarnnam(nam, "error opening database file %s", resource_name);
 	return 1;
     }
@@ -447,6 +460,9 @@ gdbmuntie(Param pm)
 
         /* Let hash fields know there's no backend */
         ((struct gsu_scalar_ext *)ht->tmpdata)->dbf = NULL;
+
+        /* Remove from list of tied parameters */
+        remove_tied_name(pm->node.nam);
     }
 
     /* for completeness ... createspecialhash() should have an inverse */
@@ -486,7 +502,7 @@ static struct features module_features = {
     bintab, sizeof(bintab)/sizeof(*bintab),
     NULL, 0,
     NULL, 0,
-    NULL, 0,
+    patab, sizeof(patab)/sizeof(*patab),
     0
 };
 
@@ -516,6 +532,7 @@ enables_(Module m, int **enables)
 int
 boot_(UNUSED(Module m))
 {
+    gdbm_tied = zshcalloc((1) * sizeof(char *));
     return 0;
 }
 
@@ -523,6 +540,7 @@ boot_(UNUSED(Module m))
 int
 cleanup_(Module m)
 {
+    /* This frees `gdbm_tied` */
     return setfeatureenables(m, &module_features, NULL);
 }
 
@@ -532,6 +550,10 @@ finish_(UNUSED(Module m))
 {
     return 0;
 }
+
+/*********************
+ * Utility functions *
+ *********************/
 
 static Param createhash( char *name, int flags ) {
     Param pm;
@@ -558,4 +580,77 @@ static Param createhash( char *name, int flags ) {
     ht->scantab = scangdbmkeys;
 
     return pm;
+}
+
+/*
+ * Adds parameter name to `gdbm_tied`
+ */
+
+static int append_tied_name( const char *name ) {
+    int old_len = arrlen(gdbm_tied);
+    char **new_gdbm_tied = zshcalloc( (old_len+2) * sizeof(char *));
+
+    /* Copy */
+    char **p = gdbm_tied;
+    char **dst = new_gdbm_tied;
+    while (*p) {
+        *dst++ = *p++;
+    }
+
+    /* Append new one */
+    *dst = ztrdup(name);
+
+    /* Substitute, free old one */
+    zfree(gdbm_tied, sizeof(char *) * (old_len + 1));
+    gdbm_tied = new_gdbm_tied;
+
+    return 0;
+}
+
+/*
+ * Removes parameter name from `gdbm_tied`
+ */
+
+static int remove_tied_name( const char *name ) {
+    int old_len = arrlen(gdbm_tied);
+
+    /* Two stage, to always have arrlen() == zfree-size - 1.
+     * Could do allocation and revert when `not found`, but
+     * what would be better about that. */
+
+    /* Find one to remove */
+    char **p = gdbm_tied;
+    while (*p) {
+        if (0==strcmp(name,*p)) {
+            break;
+        }
+        p++;
+    }
+
+    /* Copy x+1 to x */
+    while (*p) {
+        *p=*(p+1);
+        p++;
+    }
+
+    /* Second stage. Size changed? Only old_size-1
+     * change is possible, but.. paranoia way */
+    int new_len = arrlen(gdbm_tied);
+    if (new_len != old_len) {
+        char **new_gdbm_tied = zshcalloc((new_len+1) * sizeof(char *));
+
+        /* Copy */
+        p = gdbm_tied;
+        char **dst = new_gdbm_tied;
+        while (*p) {
+            *dst++ = *p++;
+        }
+        *dst = NULL;
+
+        /* Substitute, free old one */
+        zfree(gdbm_tied, sizeof(char *) * (old_len + 1));
+        gdbm_tied = new_gdbm_tied;
+    }
+
+    return 0;
 }
