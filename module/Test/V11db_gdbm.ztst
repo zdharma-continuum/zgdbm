@@ -1,0 +1,215 @@
+# Tests for the zsh/param/private module
+
+%prep
+
+ module_path=( `pwd`/Modules )
+ modname="psprint/zgdbm"
+ #modname="zsh/db/gdbm"
+ dbfile=db.gdbm
+ if ! zmodload $modname ; then
+   ZTST_unimplemented="can't load $modname module for testing"
+ fi
+ rm -f db.gdbm
+
+%test
+
+ (zmodload -u $modname && zmodload $modname)
+0:unload and reload the module without crashing
+
+ ztie -d db/gdbm -f $dbfile dbase
+ zuntie dbase
+0:create the database
+
+ ztie -r -d db/gdbm -f $dbfile dbase
+ zuntie -u dbase
+0:open the database read-only
+
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase[testkey]=testdata
+ zuntie dbase
+ ztie -r -d db/gdbm -f $dbfile dbase
+ echo $dbase[testkey]
+ zuntie -u dbase
+0:store key in database
+>testdata
+
+ ztie -d db/gdbm -f $dbfile dbase2
+ unset 'dbase2[testkey]'
+ zuntie dbase2
+ ztie -d db/gdbm -f $dbfile dbase
+ echo $dbase[testkey]
+ zuntie dbase
+0:remove key from database (different variables)
+>
+
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase[testkey]=testdata
+ zuntie dbase
+ ztie -r -d db/gdbm -f $dbfile dbase
+ echo $dbase[testkey]
+ zuntie -u dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ unset 'dbase[testkey]'
+ zuntie dbase
+ ztie -r -d db/gdbm -f $dbfile dbase
+ echo $dbase[testkey]
+ zuntie -u dbase
+0:store & remove key from database (the same variables)
+>testdata
+>
+
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase[testkey]=testdata
+ dbase[testkey2]=$dbase[testkey]
+ dbase[testkey3]=$dbase[testkey]x$dbase[testkey2]
+ zuntie dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ echo $dbase[testkey]
+ echo $dbase[testkey2]
+ echo $dbase[testkey3]
+ zuntie dbase
+0:store 2 keys fetching 1st
+>testdata
+>testdata
+>testdataxtestdata
+
+ ztie -d db/gdbm -f $dbfile dbase
+ val=$dbase[testkey2]
+ unset 'dbase[testkey2]'
+ echo $val
+ zuntie dbase
+0:unset key that was fetched
+>testdata
+
+ ztie -r -d db/gdbm -f $dbfile dbase
+ print -rl -- "${(kv)dbase[@]}"
+ zuntie -u dbase
+0:scan read-only tied hash
+>testkey
+>testdata
+>testkey3
+>testdataxtestdata
+
+ ztie -d db/gdbm -f $dbfile dbase
+ local -a arr
+ arr=( "${(kv)dbase[@]}" )
+ print -rl -- "${arr[@]}"
+ zuntie dbase
+0:different scan, also read-write mode
+>testkey
+>testdata
+>testkey3
+>testdataxtestdata
+
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase=( a b c d )
+ zuntie dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ print -rl -- "${(kv)dbase[@]}"
+ zuntie dbase
+0:replace hash / database, scan
+>c
+>d
+>a
+>b
+
+ ztie -d db/gdbm -f $dbfile dbase
+ local -a arr
+ arr=( "${dbase[@]}" )
+ print -rl -- "${arr[@]}"
+ zuntie dbase
+0:scan with no (kv)
+>d
+>b
+
+ ztie -d db/gdbm -f $dbfile dbase
+ print -rl -- "${(k)dbase[@]}"
+ zuntie dbase
+0:scan with keys only (k)
+>c
+>a
+
+ ztie -d db/gdbm -f $dbfile dbase
+ print -rl -- "${(v)dbase[@]}"
+ zuntie dbase
+0:scan with keys only explicit (v)
+>d
+>b
+
+ rm -f $dbfile
+ ztie -r -d db/gdbm -f $dbfile dbase 2>/dev/null
+1:read-only open non-existent database
+
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase+=( a b )
+ echo $dbase[a]
+ zuntie dbase
+ ztie -r -d db/gdbm -f $dbfile dbase
+ echo $dbase[a]
+ print -rl -- "${(kv)dbase[@]}"
+ zuntie -u dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase+=( c d )
+ echo $dbase[a]
+ echo $dbase[c]
+ print -rl -- "${(kv)dbase[@]}"
+ zuntie dbase
+ ztie -r -d db/gdbm -f $dbfile dbase
+ echo $dbase[a]
+ echo $dbase[c]
+ print -rl -- "${(kv)dbase[@]}"
+ zuntie -u dbase
+0:Append with +=( ), also with existing data, also (kv) scan
+>b
+>b
+>a
+>b
+>b
+>d
+>c
+>d
+>a
+>b
+>b
+>d
+>c
+>d
+>a
+>b
+
+ ztie -d db/gdbm -f $dbfile dbase
+ echo ${(t)dbase}
+ zuntie dbase
+0:Type of tied parameter
+>association-special
+
+ typeset -ga dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ echo ${(t)dbase}
+ zuntie dbase
+0:Type of tied parameter, with preceding unset
+>association-special
+
+ local -a dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ echo ${(t)dbase}
+ zuntie dbase
+0:Type of tied parameter, with local parameter already existing
+>association-local-special
+
+ local -a dbase
+ dbase=( fromarray )
+ () {
+     local -a dbase
+     ztie -d db/gdbm -f $dbfile dbase
+     echo ${(t)dbase}
+     zuntie dbase
+ }
+ echo $dbase[1]
+ ztie -d db/gdbm -f $dbfile dbase2
+ echo "Can connect, so untie happened:" $dbase2[a]
+ zuntie dbase2
+0:Test of automatic untie (use of local scope) and of scoping
+>association-local-special
+>fromarray
+>Can connect, so untie happened: b
