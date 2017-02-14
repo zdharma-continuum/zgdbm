@@ -213,3 +213,26 @@
 >association-local-special
 >fromarray
 >Can connect, so untie happened: b
+
+ echo $gdbm_tied ${#gdbm_tied}
+ ztie -r -d db/gdbm -f $dbfile dbase
+ echo $gdbm_tied ${#gdbm_tied}
+ ztie -d db/gdbm -f ${dbfile}2 dbase2
+ echo $gdbm_tied ${#gdbm_tied}
+ zuntie -u dbase
+ echo $gdbm_tied ${#gdbm_tied}
+ zuntie dbase2
+ echo $gdbm_tied ${#gdbm_tied}
+0:gdbm_tied parameter
+>0
+>dbase 1
+>dbase dbase2 2
+>dbase2 1
+>0
+
+ unset gdbm_tied 2>/dev/null
+1:unset of read-only gdbm_tied parameter
+
+%clean
+
+  rm -f ${dbfile}*
