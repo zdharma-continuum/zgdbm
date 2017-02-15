@@ -292,8 +292,14 @@ gdbmgetfn(Param pm)
         return pm->u.str ? pm->u.str : (char *) hcalloc(1);
     }
 
-    key.dptr = pm->node.nam;
-    key.dsize = strlen(key.dptr);
+    /* Unmetafy key. GDBM fits nice into this
+     * process, as it uses length of data */
+    char *umkey = ztrdup(pm->node.nam);
+    int umlen = 0;
+    umkey = unmetafy(umkey,&umlen);
+
+    key.dptr = umkey;
+    key.dsize = umlen;
 
     dbf = ((struct gsu_scalar_ext *)pm->gsu.s)->dbf;
 
@@ -308,11 +314,19 @@ gdbmgetfn(Param pm)
             zsfree(pm->u.str);
         }
 
-        pm->u.str = ztrduppfx( content.dptr, content.dsize );
+        /* Metafy returned data. All fits - metafy
+         * can obtain data length to avoid using \0 */
+        pm->u.str = metafy(content.dptr, content.dsize, META_ALLOC);
+
+        /* Free key */
+        zsfree(umkey);
 
         /* Can return pointer, correctly saved inside hash */
         return pm->u.str;
     }
+
+    /* Free key */
+    zsfree(umkey);
 
     /* Can this be "" ? */
     return (char *) hcalloc(1);
@@ -342,20 +356,33 @@ gdbmsetfn(Param pm, char *val)
     }
 
     /* Database */
-    key.dptr = pm->node.nam;
-    key.dsize = strlen(key.dptr);
     dbf = ((struct gsu_scalar_ext *)pm->gsu.s)->dbf;
+    if (dbf) {
+        char *umkey = ztrdup(pm->node.nam);
+        int umlen = 0;
+        umkey = unmetafy(umkey,&umlen);
 
-    if (val) {
-        if (dbf) {
-            content.dptr = val;
-            content.dsize = strlen(content.dptr);
+        key.dptr = umkey;
+        key.dsize = umlen;
+
+        if (val) {
+            /* Unmetafy */
+            char *umval = ztrdup(val);
+            umval = unmetafy(umval,&umlen);
+
+            /* Store */
+            content.dptr = umval;
+            content.dsize = umlen;
             (void)gdbm_store(dbf, key, content, GDBM_REPLACE);
-        }
-    } else {
-        if (dbf) {
+
+            /* Free */
+            zsfree(umval);
+        } else {
             (void)gdbm_delete(dbf, key);
         }
+
+        /* Free key */
+        zsfree(umkey);
     }
 }
 
@@ -477,15 +504,28 @@ gdbmhashsetfn(Param pm, HashTable ht)
 	    v.arr = NULL;
 	    v.pm = (Param) hn;
 
-	    key.dptr = v.pm->node.nam;
-	    key.dsize = strlen(key.dptr);
+            /* Unmetafy key */
+            char *umkey = ztrdup(v.pm->node.nam);
+            int umlen = 0;
+            umkey = unmetafy(umkey,&umlen);
+
+	    key.dptr = umkey;
+	    key.dsize = umlen;
 
 	    queue_signals();
 
-	    content.dptr = getstrvalue(&v);
-	    content.dsize = strlen(content.dptr);
+            /* Unmetafy */
+            char *umval = ztrdup(getstrvalue(&v));
+            umval = unmetafy(umval,&umlen);
 
+            /* Store */
+	    content.dptr = umval;
+	    content.dsize = umlen;
 	    (void)gdbm_store(dbf, key, content, GDBM_REPLACE);	
+
+            /* Free */
+            zsfree(umval);
+            zsfree(umkey);
 
 	    unqueue_signals();
 	}
