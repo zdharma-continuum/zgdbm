@@ -263,6 +263,25 @@
 >value
 >correct
 
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase=( 漢字 漢字 )
+ echo $dbase[漢字]
+ zuntie dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ echo $dbase[漢字]
+ zuntie dbase
+ key="ab"$'\0'"ef"
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase+=( $key $key )
+ zuntie dbase
+ ztie -r -d db/gdbm -f $dbfile dbase
+ [[ "$dbase[$key]" = "$key" ]] && echo correct
+ zuntie -u dbase
+0:Unicode & metafication test, different hash access
+>漢字
+>漢字
+>correct
+
 %clean
 
   rm -f ${dbfile}*
