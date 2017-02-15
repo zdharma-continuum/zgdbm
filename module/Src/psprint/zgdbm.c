@@ -565,7 +565,7 @@ gdbmhashunsetfn(Param pm, UNUSED(int exp))
 
     /* Remember custom GSU structure assigned to
      * u.hash->tmpdata before hash gets deleted */
-    void * gsu_ext = pm->u.hash->tmpdata;
+    struct gsu_scalar_ext * gsu_ext = pm->u.hash->tmpdata;
 
     /* Uses normal unsetter. Will delete all owned
      * parameters and also hashtable. */
@@ -573,6 +573,7 @@ gdbmhashunsetfn(Param pm, UNUSED(int exp))
 
     /* Don't need custom GSU structure with its
      * GDBM_FILE pointer anymore */
+    zsfree( gsu_ext->dbfile_path );
     zfree( gsu_ext, sizeof(struct gsu_scalar_ext));
 
     pm->node.flags |= PM_UNSET;
