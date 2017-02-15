@@ -94,10 +94,10 @@ static struct builtin bintab[] = {
     { name, PM_ARRAY | PM_READONLY, (void *) var, NULL,  NULL, NULL, NULL }
 
 /* Holds names of all tied parameters */
-char **gdbm_tied;
+char **zgdbm_tied;
 
 static struct paramdef patab[] = {
-    ROARRPARAMDEF( "gdbm_tied", &gdbm_tied ),
+    ROARRPARAMDEF( "zgdbm_tied", &zgdbm_tied ),
 };
 
 /**/
@@ -576,7 +576,7 @@ enables_(Module m, int **enables)
 int
 boot_(UNUSED(Module m))
 {
-    gdbm_tied = zshcalloc((1) * sizeof(char *));
+    zgdbm_tied = zshcalloc((1) * sizeof(char *));
     return 0;
 }
 
@@ -584,7 +584,7 @@ boot_(UNUSED(Module m))
 int
 cleanup_(Module m)
 {
-    /* This frees `gdbm_tied` */
+    /* This frees `zgdbm_tied` */
     return setfeatureenables(m, &module_features, NULL);
 }
 
@@ -627,16 +627,16 @@ static Param createhash( char *name, int flags ) {
 }
 
 /*
- * Adds parameter name to `gdbm_tied`
+ * Adds parameter name to `zgdbm_tied`
  */
 
 static int append_tied_name( const char *name ) {
-    int old_len = arrlen(gdbm_tied);
-    char **new_gdbm_tied = zshcalloc( (old_len+2) * sizeof(char *));
+    int old_len = arrlen(zgdbm_tied);
+    char **new_zgdbm_tied = zshcalloc( (old_len+2) * sizeof(char *));
 
     /* Copy */
-    char **p = gdbm_tied;
-    char **dst = new_gdbm_tied;
+    char **p = zgdbm_tied;
+    char **dst = new_zgdbm_tied;
     while (*p) {
         *dst++ = *p++;
     }
@@ -645,25 +645,25 @@ static int append_tied_name( const char *name ) {
     *dst = ztrdup(name);
 
     /* Substitute, free old one */
-    zfree(gdbm_tied, sizeof(char *) * (old_len + 1));
-    gdbm_tied = new_gdbm_tied;
+    zfree(zgdbm_tied, sizeof(char *) * (old_len + 1));
+    zgdbm_tied = new_zgdbm_tied;
 
     return 0;
 }
 
 /*
- * Removes parameter name from `gdbm_tied`
+ * Removes parameter name from `zgdbm_tied`
  */
 
 static int remove_tied_name( const char *name ) {
-    int old_len = arrlen(gdbm_tied);
+    int old_len = arrlen(zgdbm_tied);
 
     /* Two stage, to always have arrlen() == zfree-size - 1.
      * Could do allocation and revert when `not found`, but
      * what would be better about that. */
 
     /* Find one to remove */
-    char **p = gdbm_tied;
+    char **p = zgdbm_tied;
     while (*p) {
         if (0==strcmp(name,*p)) {
             break;
@@ -679,21 +679,21 @@ static int remove_tied_name( const char *name ) {
 
     /* Second stage. Size changed? Only old_size-1
      * change is possible, but.. paranoia way */
-    int new_len = arrlen(gdbm_tied);
+    int new_len = arrlen(zgdbm_tied);
     if (new_len != old_len) {
-        char **new_gdbm_tied = zshcalloc((new_len+1) * sizeof(char *));
+        char **new_zgdbm_tied = zshcalloc((new_len+1) * sizeof(char *));
 
         /* Copy */
-        p = gdbm_tied;
-        char **dst = new_gdbm_tied;
+        p = zgdbm_tied;
+        char **dst = new_zgdbm_tied;
         while (*p) {
             *dst++ = *p++;
         }
         *dst = NULL;
 
         /* Substitute, free old one */
-        zfree(gdbm_tied, sizeof(char *) * (old_len + 1));
-        gdbm_tied = new_gdbm_tied;
+        zfree(zgdbm_tied, sizeof(char *) * (old_len + 1));
+        zgdbm_tied = new_zgdbm_tied;
     }
 
     return 0;
