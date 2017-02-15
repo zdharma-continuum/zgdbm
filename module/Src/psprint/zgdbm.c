@@ -72,12 +72,13 @@ static char *backtype = "db/gdbm";
 struct gsu_scalar_ext {
     struct gsu_scalar std;
     GDBM_FILE dbf;
+    char *dbfile_path;
 };
 
 /* Source structure - will be copied to allocated one,
  * with `dbf` filled. `dbf` allocation <-> gsu allocation. */
 static const struct gsu_scalar_ext gdbm_gsu_ext =
-{ { gdbmgetfn, gdbmsetfn, gdbmunsetfn }, 0 };
+{ { gdbmgetfn, gdbmsetfn, gdbmunsetfn }, 0, 0 };
 
 /**/
 static const struct gsu_hash gdbm_hash_gsu =
@@ -86,6 +87,7 @@ static const struct gsu_hash gdbm_hash_gsu =
 static struct builtin bintab[] = {
     BUILTIN("ztie", 0, bin_ztie, 1, -1, 0, "d:f:r", NULL),
     BUILTIN("zuntie", 0, bin_zuntie, 1, -1, 0, "u", NULL),
+    BUILTIN("zgdbmpath", 0, bin_zgdbmpath, 1, -1, 0, "", NULL),
 };
 
 #define ROARRPARAMDEF(name, var) \
@@ -178,6 +180,13 @@ bin_ztie(char *nam, char **args, Options ops, UNUSED(int func))
     dbf_carrier->dbf = dbf;
     tied_param->u.hash->tmpdata = (void *)dbf_carrier;
 
+    /* Fill also file path field */
+    if (*resource_name != '/') {
+        /* Code copied from check_autoload() */
+        resource_name = zhtricat(metafy(zgetcwd(), -1, META_HEAPDUP), "/", resource_name);
+        resource_name = xsymlink(resource_name, 1);
+    }
+    dbf_carrier->dbfile_path = ztrdup(resource_name);
     return 0;
 }
 
@@ -213,6 +222,41 @@ bin_zuntie(char *nam, char **args, Options ops, UNUSED(int func))
     }
 
     return ret;
+}
+
+/**/
+static int
+bin_zgdbmpath(char *nam, char **args, Options ops, UNUSED(int func))
+{
+    Param pm, reply_pm;
+    char *pmname;
+
+    pmname = *args;
+
+    if (!pmname) {
+        zwarnnam(nam, "parameter name (whose path is to be written to $REPLY) is required");
+        return 1;
+    }
+
+    pm = (Param) paramtab->getnode(paramtab, pmname);
+    if(!pm) {
+        zwarnnam(nam, "no such parameter: %s", pmname);
+        return 1;
+    }
+
+    if (pm->gsu.h != &gdbm_hash_gsu) {
+        zwarnnam(nam, "not a tied gdbm parameter: %s", pmname);
+        return 1;
+    }
+
+    /* Paranoia, it *will* be always set */
+    if (((struct gsu_scalar_ext *)pm->u.hash->tmpdata)->dbfile_path) {
+        setsparam("REPLY", ztrdup(((struct gsu_scalar_ext *)pm->u.hash->tmpdata)->dbfile_path));
+    } else {
+        setsparam("REPLY", ztrdup(""));
+    }
+
+    return 0;
 }
 
 /*
