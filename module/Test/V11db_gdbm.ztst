@@ -244,6 +244,25 @@
 >漢字
 >漢字
 
+ key="ab"$'\0'"ef"
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase[$key]=value
+ echo $dbase[$key]
+ zuntie dbase
+ ztie -r -d db/gdbm -f $dbfile dbase
+ echo $dbase[$key]
+ zuntie -u dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase[$key]=$key
+ zuntie dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ [[ "$dbase[$key]" = "$key" ]] && echo correct
+ zuntie dbase
+0:Metafication of $'\0'
+>value
+>value
+>correct
+
 %clean
 
   rm -f ${dbfile}*
