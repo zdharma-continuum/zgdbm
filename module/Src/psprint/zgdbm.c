@@ -316,7 +316,7 @@ gdbmgetfn(Param pm)
 
         /* Metafy returned data. All fits - metafy
          * can obtain data length to avoid using \0 */
-        pm->u.str = metafy(content.dptr, content.dsize, META_ALLOC);
+        pm->u.str = metafy(content.dptr, content.dsize, META_DUP);
 
         /* Free key, restoring its original length */
         zsfree(umkey);
