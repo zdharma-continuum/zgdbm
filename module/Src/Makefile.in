@@ -130,8 +130,9 @@ mostlyclean-here:
 	rm -f stamp-modobjs stamp-modobjs.tmp
 .PHONY: mostlyclean-here
 
+# Not removing Src/zsh, in this package it's a symlink
 clean-here:
-	rm -f modules.stamp zsh$(EXEEXT)
+	rm -f modules.stamp
 	rm -f libzsh-*.$(DL_EXT)
 .PHONY: clean-here
 
