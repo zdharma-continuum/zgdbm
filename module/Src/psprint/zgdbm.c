@@ -41,6 +41,7 @@
 static Param createhash( char *name, int flags );
 static int append_tied_name( const char *name );
 static int remove_tied_name( const char *name );
+char *unmetafy_zalloc(const char *to_copy, int *new_len);
 
 /*
  * Make sure we have all the bits I'm using for memory mapping, otherwise
@@ -294,9 +295,8 @@ gdbmgetfn(Param pm)
 
     /* Unmetafy key. GDBM fits nice into this
      * process, as it uses length of data */
-    char *umkey = ztrdup(pm->node.nam);
     int umlen = 0;
-    umkey = unmetafy(umkey,&umlen);
+    char *umkey = unmetafy_zalloc(pm->node.nam,&umlen);
 
     key.dptr = umkey;
     key.dsize = umlen;
@@ -318,7 +318,7 @@ gdbmgetfn(Param pm)
          * can obtain data length to avoid using \0 */
         pm->u.str = metafy(content.dptr, content.dsize, META_ALLOC);
 
-        /* Free key */
+        /* Free key, restoring its original length */
         zsfree(umkey);
 
         /* Can return pointer, correctly saved inside hash */
@@ -358,17 +358,15 @@ gdbmsetfn(Param pm, char *val)
     /* Database */
     dbf = ((struct gsu_scalar_ext *)pm->gsu.s)->dbf;
     if (dbf) {
-        char *umkey = ztrdup(pm->node.nam);
         int umlen = 0;
-        umkey = unmetafy(umkey,&umlen);
+        char *umkey = unmetafy_zalloc(pm->node.nam,&umlen);
 
         key.dptr = umkey;
         key.dsize = umlen;
 
         if (val) {
-            /* Unmetafy */
-            char *umval = ztrdup(val);
-            umval = unmetafy(umval,&umlen);
+            /* Unmetafy with exact zalloc size */
+            char *umval = unmetafy_zalloc(val,&umlen);
 
             /* Store */
             content.dptr = umval;
@@ -504,9 +502,8 @@ gdbmhashsetfn(Param pm, HashTable ht)
 	    v.pm = (Param) hn;
 
             /* Unmetafy key */
-            char *umkey = ztrdup(v.pm->node.nam);
             int umlen = 0;
-            umkey = unmetafy(umkey,&umlen);
+            char *umkey = unmetafy_zalloc(v.pm->node.nam,&umlen);
 
 	    key.dptr = umkey;
 	    key.dsize = umlen;
@@ -514,15 +511,16 @@ gdbmhashsetfn(Param pm, HashTable ht)
 	    queue_signals();
 
             /* Unmetafy */
-            char *umval = ztrdup(getstrvalue(&v));
-            umval = unmetafy(umval,&umlen);
+            char *umval = unmetafy_zalloc(getstrvalue(&v),&umlen);
 
             /* Store */
 	    content.dptr = umval;
 	    content.dsize = umlen;
 	    (void)gdbm_store(dbf, key, content, GDBM_REPLACE);	
 
-            /* Free */
+            /* Free - thanks to unmetafy_zalloc size of
+             * the strings is exact zalloc size - can
+             * pass to zsfree */
             zsfree(umval);
             zsfree(umkey);
 
@@ -737,4 +735,34 @@ static int remove_tied_name( const char *name ) {
     }
 
     return 0;
+}
+
+/*
+ * Unmetafy that:
+ * - duplicates bufer to work on it,
+ * - does zalloc of exact size for the new string,
+ * - restores work buffer to original content, to restore strlen
+ *
+ * No zsfree()-confusing string will be produced.
+ */
+char *unmetafy_zalloc(const char *to_copy, int *new_len) {
+    char *work, *to_return;
+    int my_new_len = 0;
+
+    work = ztrdup(to_copy);
+    work = unmetafy(work,&my_new_len);
+
+    if (new_len)
+        *new_len = my_new_len;
+
+    /* This string can be correctly zsfree()-d */
+    to_return = (char *) zalloc((my_new_len+1)*sizeof(char));
+    memcpy(to_return, work, sizeof(char)*my_new_len); // memcpy handles $'\0'
+    to_return[my_new_len]='\0';
+
+    /* Restore original strlen and correctly free */
+    strcpy(work, to_copy);
+    zsfree(work);
+
+    return to_return;
 }
