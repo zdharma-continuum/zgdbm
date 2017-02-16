@@ -228,7 +228,7 @@ bin_zuntie(char *nam, char **args, Options ops, UNUSED(int func))
 static int
 bin_zgdbmpath(char *nam, char **args, Options ops, UNUSED(int func))
 {
-    Param pm, reply_pm;
+    Param pm;
     char *pmname;
 
     pmname = *args;
@@ -433,8 +433,7 @@ getgdbmnode(HashTable ht, const char *name)
 static void
 scangdbmkeys(HashTable ht, ScanFunc func, int flags)
 {
-    Param pm = NULL;
-    datum key, content;
+    datum key;
     GDBM_FILE dbf = ((struct gsu_scalar_ext *)ht->tmpdata)->dbf;
 
     /* Iterate keys adding them to hash, so
