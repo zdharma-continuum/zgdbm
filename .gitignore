@@ -104,8 +104,6 @@ Src/stamp-modobjs.tmp
 Src/tags
 Src/TAGS
 Src/version.h
-Src/zsh
-Src/zsh.exe
 Src/zshcurses.h
 Src/zshpaths.h
 Src/zshterm.h
