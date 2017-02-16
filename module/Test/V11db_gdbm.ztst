@@ -282,6 +282,18 @@
 >漢字
 >correct
 
+ ztie -d db/gdbm -f $dbfile dbase
+ zgdbmpath dbase
+ [[ $REPLY = */Test/db.gdbm ]] && echo correct
+ zuntie dbase
+ ztie -r -d db/gdbm -f $dbfile dbase
+ zgdbmpath dbase
+ [[ $REPLY = */Test/db.gdbm ]] && echo correct
+ zuntie -u dbase
+0:zgdbmpath builtin
+>correct
+>correct
+
 %clean
 
   rm -f ${dbfile}*
