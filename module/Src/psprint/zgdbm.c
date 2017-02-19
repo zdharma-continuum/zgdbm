@@ -89,6 +89,7 @@ static struct builtin bintab[] = {
     BUILTIN("ztie", 0, bin_ztie, 1, -1, 0, "d:f:r", NULL),
     BUILTIN("zuntie", 0, bin_zuntie, 1, -1, 0, "u", NULL),
     BUILTIN("zgdbmpath", 0, bin_zgdbmpath, 1, -1, 0, "", NULL),
+    BUILTIN("zgdbmclear", 0, bin_zgdbmclear, 2, -1, 0, "", NULL),
 };
 
 #define ROARRPARAMDEF(name, var) \
@@ -255,6 +256,42 @@ bin_zgdbmpath(char *nam, char **args, Options ops, UNUSED(int func))
         setsparam("REPLY", ztrdup(((struct gsu_scalar_ext *)pm->u.hash->tmpdata)->dbfile_path));
     } else {
         setsparam("REPLY", ztrdup(""));
+    }
+
+    return 0;
+}
+
+/**/
+static int
+bin_zgdbmclear(char *nam, char **args, Options ops, UNUSED(int func))
+{
+    Param pm;
+    char *pmname, *key;
+
+    pmname = *args++;
+    key = *args;
+
+    if (!pmname) {
+        zwarnnam(nam, "parameter name (whose path is to be written to $REPLY) is required");
+        return 1;
+    }
+
+    pm = (Param) paramtab->getnode(paramtab, pmname);
+    if(!pm) {
+        zwarnnam(nam, "no such parameter: %s", pmname);
+        return 1;
+    }
+
+    if (pm->gsu.h != &gdbm_hash_gsu) {
+        zwarnnam(nam, "not a tied gdbm parameter: %s", pmname);
+        return 1;
+    }
+
+    HashTable ht = pm->u.hash;
+    HashNode hn = gethashnode2( ht, key );
+    Param val_pm = (Param) hn;
+    if (val_pm) {
+        val_pm->node.flags &= ~(PM_UPTODATE);
     }
 
     return 0;
