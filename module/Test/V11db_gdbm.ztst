@@ -304,6 +304,17 @@
 >correct
 >correct
 
+ ztie -d db/gdbm -f $dbfile dbase
+ dbase[testkey]=value1
+ fun() { while read line; do echo $line; done }
+ eval "dbase[testkey]=value2" | fun
+ echo $dbase[testkey]
+ zgdbmclear dbase testkey
+ echo $dbase[testkey]
+0:Test store in forked Zsh
+>value1
+>value2
+
 %clean
 
   rm -f ${dbfile}*
