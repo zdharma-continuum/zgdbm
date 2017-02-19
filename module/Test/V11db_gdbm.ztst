@@ -283,6 +283,16 @@
 >correct
 
  ztie -d db/gdbm -f $dbfile dbase
+ dbase=( 漢字 漢字 )
+ zuntie dbase
+ ztie -d db/gdbm -f $dbfile dbase
+ noglob print -rl ${(kv)dbase[@]}
+ zuntie dbase
+0:Hash scanning and metafication
+>漢字
+>漢字
+
+ ztie -d db/gdbm -f $dbfile dbase
  zgdbmpath dbase
  [[ $REPLY = */Test/db.gdbm ]] && echo correct
  zuntie dbase

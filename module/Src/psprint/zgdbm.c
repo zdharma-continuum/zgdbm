@@ -442,7 +442,7 @@ scangdbmkeys(HashTable ht, ScanFunc func, int flags)
         /* This returns database-interfacing Param,
          * it will return u.str or first fetch data
          * if not PM_UPTODATE (newly created) */
-        char *zkey = ztrduppfx(key.dptr, key.dsize);
+        char *zkey = metafy(key.dptr, key.dsize, META_DUP);
         HashNode hn = getgdbmnode(ht, zkey);
         zsfree( zkey );
 
