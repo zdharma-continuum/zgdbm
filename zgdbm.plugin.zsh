@@ -25,63 +25,41 @@ fi
 # Compile the module
 #
 
-if [ ! -e "${ZGDBM_REPO_DIR}/module/Src/zdharma/zgdbm.so" ]; then
-    builtin print "----------------------------"
-    builtin print "${fg_bold[magenta]}zdharma${reset_color}/${fg_bold[yellow]}zgdbm${reset_color} is building..."
-    builtin print "----------------------------"
+zgdbm_compile() {
+    # Get CPPFLAGS, CFLAGS, LDFLAGS
+    local cppf cf ldf
+    zstyle -s ":plugin:zgdbm" cppflags cppf || cppf="-I/usr/local/include"
+    zstyle -s ":plugin:zgdbm" cflags cf || cf=""
+    zstyle -s ":plugin:zgdbm" ldflags ldf || ldf="-L/usr/local/lib"
 
-    () {
-        # Get CPPFLAGS, CFLAGS, LDFLAGS
-        local cppf cf ldf
-        zstyle -s ":plugin:zgdbm" cppflags cppf || cppf="-I/usr/local/include"
-        zstyle -s ":plugin:zgdbm" cflags cf || cf=""
-        zstyle -s ":plugin:zgdbm" ldflags ldf || ldf="-L/usr/local/lib"
+    (
+        local build=1
+        zmodload zsh/system && { zsystem flock -t 1 "${ZGDBM_REPO_DIR}/module/configure" || build=0; }
+        if (( build )); then
+            builtin cd "${ZGDBM_REPO_DIR}/module"
+            CPPFLAGS="$cppf" CFLAGS="$cf" LDFLAGS="$ldf" ./configure
+            command make clean
+            command make
 
-        (
-            local build=1
-            zmodload zsh/system && { zsystem flock -t 1 "${ZGDBM_REPO_DIR}/module/configure" || build=0; }
-            if (( build )); then
-                builtin cd "${ZGDBM_REPO_DIR}/module"
-                CPPFLAGS="$cppf" CFLAGS="$cf" LDFLAGS="$ldf" ./configure
-                command make
-            fi
-        )
-
-        local ts="${EPOCHSECONDS}"
-        [[ -z "$ts" ]] && ts="$( date +%s )"
-        builtin echo "$ts" >! "${ZGDBM_REPO_DIR}/module/COMPILED_AT"
-    }
-elif [[ ! -f "${ZGDBM_REPO_DIR}/module/COMPILED_AT" || ( "${ZGDBM_REPO_DIR}/module/COMPILED_AT" -ot "${ZGDBM_REPO_DIR}/module/RECOMPILE_REQUEST" ) ]]; then
-    () {
-        # Don't trust access times and verify hard stored values
-        [[ -e ${ZGDBM_REPO_DIR}/module/COMPILED_AT ]] && local compiled_at_ts="$(<${ZGDBM_REPO_DIR}/module/COMPILED_AT)"
-        [[ -e ${ZGDBM_REPO_DIR}/module/RECOMPILE_REQUEST ]] && local recompile_request_ts="$(<${ZGDBM_REPO_DIR}/module/RECOMPILE_REQUEST)"
-
-        if [[ "${recompile_request_ts:-1}" -gt "${compiled_at_ts:-0}" ]]; then
-            builtin echo "${fg_bold[red]}SINGLE RECOMPILETION REQUESTED BY PLUGIN'S (ZGDBM) UPDATE${reset_color}"
-
-            # Get CPPFLAGS, CFLAGS, LDFLAGS
-            local cppf cf ldf
-            zstyle -s ":plugin:zgdbm" cppflags cppf || cppf="-I/usr/local/include"
-            zstyle -s ":plugin:zgdbm" cflags cf || cf=""
-            zstyle -s ":plugin:zgdbm" ldflags ldf || ldf="-L/usr/local/lib"
-
-            (
-                local build=1
-                zmodload zsh/system && { zsystem flock -t 1 "${ZGDBM_REPO_DIR}/module/configure" || build=0; }
-                if (( build )); then
-                    builtin cd "${ZGDBM_REPO_DIR}/module"
-                    CPPFLAGS="$cppf" CFLAGS="$cf" LDFLAGS="$ldf" ./configure
-                    command make clean
-                    command make
-                fi
-            )
-
-            local ts="${EPOCHSECONDS}"
-            [[ -z "$ts" ]] && ts="$( date +%s )"
+            local ts="$EPOCHSECONDS"
+            [[ -z "$ts" ]] && ts=$( date +%s )
             builtin echo "$ts" >! "${ZGDBM_REPO_DIR}/module/COMPILED_AT"
         fi
-    }
+    )
+}
+
+if [ ! -e "${ZGDBM_REPO_DIR}/module/Src/zdharma/zgdbm.so" ]; then
+    builtin print "${fg_bold[magenta]}zdharma${reset_color}/${fg_bold[yellow]}zgdbm${reset_color} is building..."
+    zgdbm_compile
+elif [[ ! -f "${ZGDBM_REPO_DIR}/module/COMPILED_AT" || ( "${ZGDBM_REPO_DIR}/module/COMPILED_AT" -ot "${ZGDBM_REPO_DIR}/module/RECOMPILE_REQUEST" ) ]]; then
+    # Don't trust access times and verify hard stored values
+    [[ -e ${ZGDBM_REPO_DIR}/module/COMPILED_AT ]] && local compiled_at_ts="$(<${ZGDBM_REPO_DIR}/module/COMPILED_AT)"
+    [[ -e ${ZGDBM_REPO_DIR}/module/RECOMPILE_REQUEST ]] && local recompile_request_ts="$(<${ZGDBM_REPO_DIR}/module/RECOMPILE_REQUEST)"
+
+    if [[ "${recompile_request_ts:-1}" -gt "${compiled_at_ts:-0}" ]]; then
+        builtin echo "${fg_bold[red]}zgdbm: single recompiletion requested by plugin's update${reset_color}"
+        zgdbm_compile
+    fi
 fi
 
 # Finally load the module - if it has compiled
