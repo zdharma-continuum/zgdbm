@@ -25,9 +25,9 @@ fi
 # Compile the module
 #
 
-if [ ! -e "${ZGDBM_REPO_DIR}/module/Src/psprint/zgdbm.so" ]; then
+if [ ! -e "${ZGDBM_REPO_DIR}/module/Src/zdharma/zgdbm.so" ]; then
     builtin print "----------------------------"
-    builtin print "${fg_bold[magenta]}psprint${reset_color}/${fg_bold[yellow]}zgdbm${reset_color} is building..."
+    builtin print "${fg_bold[magenta]}zdharma${reset_color}/${fg_bold[yellow]}zgdbm${reset_color} is building..."
     builtin print "----------------------------"
 
     () {
@@ -71,7 +71,7 @@ elif [[ ! -f "${ZGDBM_REPO_DIR}/module/COMPILED_AT" || ( "${ZGDBM_REPO_DIR}/modu
 fi
 
 # Finally load the module - if it has compiled
-if [[ -e "${ZGDBM_REPO_DIR}/module/Src/psprint/zgdbm.so" ]]; then
+if [[ -e "${ZGDBM_REPO_DIR}/module/Src/zdharma/zgdbm.so" ]]; then
     MODULE_PATH="${ZGDBM_REPO_DIR}/module/Src":"$MODULE_PATH"
-    zmodload psprint/zgdbm
+    zmodload zdharma/zgdbm
 fi
