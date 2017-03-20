@@ -37,8 +37,15 @@ if [ ! -e "${ZGDBM_REPO_DIR}/module/Src/zdharma/zgdbm.so" ]; then
         zstyle -s ":plugin:zgdbm" cflags cf || cf=""
         zstyle -s ":plugin:zgdbm" ldflags ldf || ldf="-L/usr/local/lib"
 
-        ( builtin cd "${ZGDBM_REPO_DIR}/module"; [[ ! -e Makefile ]] && CPPFLAGS="$cppf" CFLAGS="$cf" LDFLAGS="$ldf" ./configure )
-        command make -C "${ZGDBM_REPO_DIR}/module"
+        (
+            local build=1
+            zmodload zsh/system && { zsystem flock -t 1 "${ZGDBM_REPO_DIR}/module/configure" || build=0; }
+            if (( build )); then
+                builtin cd "${ZGDBM_REPO_DIR}/module"
+                CPPFLAGS="$cppf" CFLAGS="$cf" LDFLAGS="$ldf" ./configure
+                command make
+            fi
+        )
 
         local ts="${EPOCHSECONDS}"
         [[ -z "$ts" ]] && ts="$( date +%s )"
@@ -59,9 +66,16 @@ elif [[ ! -f "${ZGDBM_REPO_DIR}/module/COMPILED_AT" || ( "${ZGDBM_REPO_DIR}/modu
             zstyle -s ":plugin:zgdbm" cflags cf || cf=""
             zstyle -s ":plugin:zgdbm" ldflags ldf || ldf="-L/usr/local/lib"
 
-            ( builtin cd "${ZGDBM_REPO_DIR}/module"; CPPFLAGS="$cppf" CFLAGS="$cf" LDFLAGS="$ldf" ./configure )
-            command make -C "${ZGDBM_REPO_DIR}/module" clean
-            command make -C "${ZGDBM_REPO_DIR}/module"
+            (
+                local build=1
+                zmodload zsh/system && { zsystem flock -t 1 "${ZGDBM_REPO_DIR}/module/configure" || build=0; }
+                if (( build )); then
+                    builtin cd "${ZGDBM_REPO_DIR}/module"
+                    CPPFLAGS="$cppf" CFLAGS="$cf" LDFLAGS="$ldf" ./configure
+                    command make clean
+                    command make
+                fi
+            )
 
             local ts="${EPOCHSECONDS}"
             [[ -z "$ts" ]] && ts="$( date +%s )"
