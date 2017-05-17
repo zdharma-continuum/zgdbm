@@ -5,7 +5,7 @@
 print "Will invoke git clean -dxf, 3 seconds"
 sleep 3
 
-git clean -dxf
+#git clean -dxf
 
 [[ ! -d "$1" ]] && { print "Path to Zsh source doesn't exist (i.e.: $1)"; exit 1; }
 
@@ -25,3 +25,5 @@ for i in configure.ac Src/*.c Src/*.h; do
 done
 
 echo "${fg[green]}Copied ${fg[yellow]}$count${fg[green]} files${reset_color}"
+
+patch -p2 -i ./patch_cfgac.diff
