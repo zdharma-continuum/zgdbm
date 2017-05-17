@@ -5,7 +5,7 @@
 print "Will invoke git clean -dxf, 3 seconds"
 sleep 3
 
-#git clean -dxf
+git clean -dxf
 
 [[ ! -d "$1" ]] && { print "Path to Zsh source doesn't exist (i.e.: $1)"; exit 1; }
 
