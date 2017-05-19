@@ -29,7 +29,7 @@ zgdbm_compile() {
     # Get CPPFLAGS, CFLAGS, LDFLAGS
     local cppf cf ldf
     zstyle -s ":plugin:zgdbm" cppflags cppf || cppf="-I/usr/local/include"
-    zstyle -s ":plugin:zgdbm" cflags cf || cf=""
+    zstyle -s ":plugin:zgdbm" cflags cf || cf="-Wall -O2"
     zstyle -s ":plugin:zgdbm" ldflags ldf || ldf="-L/usr/local/lib"
 
     (
