@@ -614,10 +614,6 @@ gdbmhashunsetfn(Param pm, UNUSED(int exp))
     pm->node.flags |= PM_UNSET;
 }
 
-#else
-# error no gdbm
-#endif /* have gdbm */
-
 static struct features module_features = {
     bintab, sizeof(bintab)/sizeof(*bintab),
     NULL, 0,
@@ -804,3 +800,7 @@ char *unmetafy_zalloc(const char *to_copy, int *new_len) {
 
     return to_return;
 }
+
+#else
+# error no gdbm
+#endif /* have gdbm */
