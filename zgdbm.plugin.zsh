@@ -1,6 +1,6 @@
 #
 # No plugin manager is needed to use this file. All that is needed is adding:
-#   source {where-zcommodore-is}/zcommodore.plugin.zsh
+#   source {where-zgdbm-is}/zgdbm.plugin.zsh
 #
 # to ~/.zshrc.
 #
