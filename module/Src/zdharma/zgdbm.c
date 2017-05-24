@@ -41,7 +41,7 @@
 static Param createhash( char *name, int flags );
 static int append_tied_name( const char *name );
 static int remove_tied_name( const char *name );
-char *unmetafy_zalloc(const char *to_copy, int *new_len);
+static char *unmetafy_zalloc(const char *to_copy, int *new_len);
 
 /*
  * Make sure we have all the bits I'm using for memory mapping, otherwise
@@ -779,7 +779,7 @@ static int remove_tied_name( const char *name ) {
  *
  * No zsfree()-confusing string will be produced.
  */
-char *unmetafy_zalloc(const char *to_copy, int *new_len) {
+static char *unmetafy_zalloc(const char *to_copy, int *new_len) {
     char *work, *to_return;
     int my_new_len = 0;
 
