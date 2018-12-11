@@ -1,3 +1,7 @@
+/* -*- Mode: C; c-basic-offset: 4 -*-
+ * vim:sw=4:sts=4:et
+ */
+
 /*
  * zgdbm.c - bindings for gdbm
  *
@@ -33,16 +37,32 @@
 
 #include "zgdbm.mdh"
 #include "zgdbm.pro"
+#include "db.epro"
 
+/* MACROS {{{ */
 #ifndef PM_UPTODATE
 #define PM_UPTODATE     (1<<19) /* Parameter has up-to-date data (e.g. loaded from DB) */
 #endif
 
+/* Backend commands */
+#define DB_TIE 1
+#define DB_UNTIE 2
+#define DB_IS_TIED 3
+#define DB_GET_ADDRESS 4
+#define DB_CLEAR_CACHE 5
+/* }}} */
+/* DECLARATIONS {{{ */
 static Param createhash( char *name, int flags );
+static void myfreeparamnode(HashNode hn);
 static int append_tied_name( const char *name );
 static int remove_tied_name( const char *name );
 static char *unmetafy_zalloc(const char *to_copy, int *new_len);
 static void set_length(char *buf, int size);
+static int is_tied_cmd(char *pmname);
+static int is_tied(Param pm);
+
+static int no_database_action = 0;
+/* }}} */
 
 /*
  * Make sure we have all the bits I'm using for memory mapping, otherwise
@@ -52,7 +72,7 @@ static void set_length(char *buf, int size);
 
 #include <gdbm.h>
 
-static char *backtype = "db/gdbm";
+/* ARRAY: GSU {{{ */
 
 /*
  * Longer GSU structure, to carry GDBM_FILE of owning
@@ -75,99 +95,167 @@ struct gsu_scalar_ext {
     struct gsu_scalar std;
     GDBM_FILE dbf;
     char *dbfile_path;
+    int use_cache;
 };
 
 /* Source structure - will be copied to allocated one,
  * with `dbf` filled. `dbf` allocation <-> gsu allocation. */
 static const struct gsu_scalar_ext gdbm_gsu_ext =
-{ { gdbmgetfn, gdbmsetfn, gdbmunsetfn }, 0, 0 };
+    { { gdbmgetfn, gdbmsetfn, gdbmunsetfn }, 0, 0 };
 
 /**/
 static const struct gsu_hash gdbm_hash_gsu =
-{ hashgetfn, gdbmhashsetfn, gdbmhashunsetfn };
+    { hashgetfn, gdbmhashsetfn, gdbmhashunsetfn };
 
-static struct builtin bintab[] = {
-    BUILTIN("ztie", 0, bin_ztie, 1, -1, 0, "d:f:r", NULL),
-    BUILTIN("zuntie", 0, bin_zuntie, 1, -1, 0, "u", NULL),
-    BUILTIN("zgdbmpath", 0, bin_zgdbmpath, 1, -1, 0, "", NULL),
-    BUILTIN("zgdbmclear", 0, bin_zgdbmclear, 2, -1, 0, "", NULL),
-};
+static struct builtin bintab[] = {};
 
-#define ROARRPARAMDEF(name, var) \
+#define ROARRPARAMDEF(name, var)                                        \
     { name, PM_ARRAY | PM_READONLY, (void *) var, NULL,  NULL, NULL, NULL }
 
 /* Holds names of all tied parameters */
 char **zgdbm_tied;
 
 static struct paramdef patab[] = {
-    ROARRPARAMDEF( "zgdbm_tied", &zgdbm_tied ),
+                                  ROARRPARAMDEF( "zgdbm_tied", &zgdbm_tied ),
 };
+/* }}} */
+
+/* FUNCTION: gdbm_main_entry {{{ */
+static int
+gdbm_main_entry(VA_ALIST1(int cmd))
+    VA_DCL
+{
+    char *address = NULL, *pass = NULL, *pfile = NULL, *pmname = NULL, *key = NULL;
+    int rdonly = 0, zcache = 0, pprompt = 0, rountie = 0;
+
+    va_list ap;
+    VA_DEF_ARG(int cmd);
+
+    VA_START(ap, cmd);
+    VA_GET_ARG(ap, cmd, int);
+
+    switch (cmd) {
+    case DB_TIE:
+        /* Order is:
+         * -a/f address, char *
+         * -r read-only, int
+         * -z zero-cache, int
+         * -p password, char *
+         * -P file with password, char *
+         * -l prompt for password, int
+         * parameter name, char *
+         */
+        address = va_arg(ap, char *);
+        rdonly = va_arg(ap, int);
+        zcache = va_arg(ap, int);
+        pass = va_arg(ap, char *);
+        pfile = va_arg(ap, char *);
+        pprompt = va_arg(ap, int);
+        pmname = va_arg(ap, char *);
+        return zgtie_cmd(address, rdonly, zcache, pass, pfile, pprompt, pmname);
+
+    case DB_UNTIE:
+        /* Order is:
+         * -u untie read only parameter, int
+         * parameter name, char *
+         */
+        rountie = va_arg(ap, int);
+        pmname = va_arg(ap, char *);
+        char *argv[2];
+        argv[0] = pmname;
+        argv[1] = NULL;
+        return zguntie_cmd(rountie, argv);
+
+    case DB_IS_TIED:
+        /* Order is:
+         * parameter name, char *
+         */
+        pmname = va_arg(ap, char *);
+        return is_tied_cmd(pmname);
+
+    case DB_GET_ADDRESS:
+        /* Order is:
+         * Parameter name, char *
+         */
+        pmname = va_arg(ap, char*);
+        return zgdbmpath_cmd(pmname);
+
+    case DB_CLEAR_CACHE:
+        /* Order is:
+         * Parameter name, char *
+         * key name, char *
+         */
+        pmname = va_arg(ap, char*);
+        key = va_arg(ap, char*);
+        return zgdbmclear_cmd(pmname, key);
+
+    default:
+#ifdef DEBUG
+        dputs("Bad command %d in redis_main_entry", cmd);
+#endif
+        break;
+    }
+    return 1;
+}
+/* }}} */
+/* FUNCTION: bin_ztie {{{ */
 
 /**/
 static int
-bin_ztie(char *nam, char **args, Options ops, UNUSED(int func))
+zgtie_cmd(char *address, int rdonly, int zcache, char *pass, char *pfile, int pprompt, char *pmname)
 {
-    char *resource_name, *pmname;
     GDBM_FILE dbf = NULL;
     int read_write = GDBM_SYNC, pmflags = PM_REMOVABLE;
     Param tied_param;
 
-    if(!OPT_ISSET(ops,'d')) {
-        zwarnnam(nam, "you must pass `-d %s'", backtype);
-	return 1;
+    if (!address) {
+        zwarn("you must pass `-f' or '-a' path to the database", NULL);
+        return 1;
     }
-    if(!OPT_ISSET(ops,'f')) {
-        zwarnnam(nam, "you must pass `-f' with a filename", NULL);
-	return 1;
+
+    if (!pmname) {
+        zwarn("you must pass non-option argument - the target parameter to create, see -h");
+        return 1;
     }
-    if (OPT_ISSET(ops,'r')) {
-	read_write |= GDBM_READER;
-	pmflags |= PM_READONLY;
+
+    if (rdonly) {
+        read_write |= GDBM_READER;
+        pmflags |= PM_READONLY;
     } else {
-	read_write |= GDBM_WRCREAT;
+        read_write |= GDBM_WRCREAT;
     }
-
-    /* Here should be a lookup of the backend type against
-     * a registry, if generam DB mechanism is to be added */
-    if (strcmp(OPT_ARG(ops, 'd'), backtype) != 0) {
-        zwarnnam(nam, "unsupported backend type `%s'", OPT_ARG(ops, 'd'));
-	return 1;
-    }
-
-    resource_name = OPT_ARG(ops, 'f');
-    pmname = *args;
 
     if ((tied_param = (Param)paramtab->getnode(paramtab, pmname)) &&
-	!(tied_param->node.flags & PM_UNSET)) {
-	/*
-	 * Unset any existing parameter.  Note there's no implicit
-	 * "local" here, but if the existing parameter is local
-	 * then new parameter will be also local without following
+        !(tied_param->node.flags & PM_UNSET)) {
+        /*
+         * Unset any existing parameter.  Note there's no implicit
+         * "local" here, but if the existing parameter is local
+         * then new parameter will be also local without following
          * unset.
-	 *
-	 * We need to do this before attempting to open the DB
-	 * in case this variable is already tied to a DB.
-	 *
-	 * This can fail if the variable is readonly or restricted.
-	 * We could call unsetparam() and check errflag instead
-	 * of the return status.
-	 */
-	if (unsetparam_pm(tied_param, 0, 1))
-	    return 1;
+         *
+         * We need to do this before attempting to open the DB
+         * in case this variable is already tied to a DB.
+         *
+         * This can fail if the variable is readonly or restricted.
+         * We could call unsetparam() and check errflag instead
+         * of the return status.
+         */
+        if (unsetparam_pm(tied_param, 0, 1))
+            return 1;
     }
 
     gdbm_errno=0;
-    dbf = gdbm_open(resource_name, 0, read_write, 0666, 0);
+    dbf = gdbm_open(address, 0, read_write, 0666, 0);
     if(dbf == NULL) {
-	zwarnnam(nam, "error opening database file %s (%s)", resource_name, gdbm_strerror(gdbm_errno));
-	return 1;
+        zwarn("error opening database file %s (%s)", address, gdbm_strerror(gdbm_errno));
+        return 1;
     }
 
     if (!(tied_param = createhash(pmname, pmflags))) {
-        zwarnnam(nam, "cannot create the requested parameter %s", pmname);
-	fdtable[gdbm_fdesc(dbf)] = FDT_UNUSED;
-	gdbm_close(dbf);
-	return 1;
+        zwarn("cannot create the requested parameter %s", pmname);
+        fdtable[gdbm_fdesc(dbf)] = FDT_UNUSED;
+        gdbm_close(dbf);
+        return 1;
     }
 
     addmodulefd(gdbm_fdesc(dbf), FDT_MODULE);
@@ -175,81 +263,87 @@ bin_ztie(char *nam, char **args, Options ops, UNUSED(int func))
 
     tied_param->gsu.h = &gdbm_hash_gsu;
 
-    /* Allocate parameter sub-gsu, fill dbf field. 
+    /* Allocate parameter sub-gsu, fill dbf field.
      * dbf allocation is 1 to 1 accompanied by
      * gsu_scalar_ext allocation. */
 
     struct gsu_scalar_ext *dbf_carrier = (struct gsu_scalar_ext *) zalloc(sizeof(struct gsu_scalar_ext));
     dbf_carrier->std = gdbm_gsu_ext.std;
     dbf_carrier->dbf = dbf;
+    dbf_carrier->use_cache = 1;
+    if (zcache) {
+        dbf_carrier->use_cache = 0;
+    }
     tied_param->u.hash->tmpdata = (void *)dbf_carrier;
 
     /* Fill also file path field */
-    if (*resource_name != '/') {
+    if (*address != '/') {
         /* Code copied from check_autoload() */
-        resource_name = zhtricat(metafy(zgetcwd(), -1, META_HEAPDUP), "/", resource_name);
-        resource_name = xsymlink(resource_name, 1);
+        address = zhtricat(metafy(zgetcwd(), -1, META_HEAPDUP), "/", address);
+        address = xsymlink(address, 1);
     }
-    dbf_carrier->dbfile_path = ztrdup(resource_name);
+    dbf_carrier->dbfile_path = ztrdup(address);
     return 0;
 }
+/* }}} */
+/* FUNCTION: zguntie_cmd {{{ */
 
 /**/
 static int
-bin_zuntie(char *nam, char **args, Options ops, UNUSED(int func))
+zguntie_cmd(int rountie, char **args)
 {
     Param pm;
     char *pmname;
     int ret = 0;
 
     for (pmname = *args; *args++; pmname = *args) {
-	pm = (Param) paramtab->getnode(paramtab, pmname);
-	if(!pm) {
-	    zwarnnam(nam, "cannot untie %s", pmname);
-	    ret = 1;
-	    continue;
-	}
-	if (pm->gsu.h != &gdbm_hash_gsu) {
-	    zwarnnam(nam, "not a tied gdbm hash: %s", pmname);
-	    ret = 1;
-	    continue;
-	}
+        pm = (Param) paramtab->getnode(paramtab, pmname);
+        if(!pm) {
+            zwarn("cannot untie %s", pmname);
+            ret = 1;
+            continue;
+        }
+        if (pm->gsu.h != &gdbm_hash_gsu) {
+            zwarn("not a tied gdbm hash: %s", pmname);
+            ret = 1;
+            continue;
+        }
 
-	queue_signals();
-	if (OPT_ISSET(ops,'u'))
-	    gdbmuntie(pm);	/* clear read-only-ness */
-	if (unsetparam_pm(pm, 0, 1)) {
-	    /* assume already reported */
-	    ret = 1;
-	}
-	unqueue_signals();
+        queue_signals();
+        if (rountie) {
+            pm->node.flags &= ~PM_READONLY;
+        }
+        if (unsetparam_pm(pm, 0, 1)) {
+            /* assume already reported */
+            ret = 1;
+        }
+        unqueue_signals();
     }
 
     return ret;
 }
+/* }}} */
+/* FUNCTION: zgdbmpath_cmd{{{ */
 
 /**/
 static int
-bin_zgdbmpath(char *nam, char **args, Options ops, UNUSED(int func))
+zgdbmpath_cmd(char *pmname)
 {
     Param pm;
-    char *pmname;
-
-    pmname = *args;
 
     if (!pmname) {
-        zwarnnam(nam, "parameter name (whose path is to be written to $REPLY) is required");
+        zwarn("parameter name (whose path is to be written to $REPLY) not given");
         return 1;
     }
 
     pm = (Param) paramtab->getnode(paramtab, pmname);
     if(!pm) {
-        zwarnnam(nam, "no such parameter: %s", pmname);
+        zwarn("no such parameter: %s", pmname);
         return 1;
     }
 
     if (pm->gsu.h != &gdbm_hash_gsu) {
-        zwarnnam(nam, "not a tied gdbm parameter: %s", pmname);
+        zwarn("not a tied gdbm parameter: %s", pmname);
         return 1;
     }
 
@@ -262,30 +356,32 @@ bin_zgdbmpath(char *nam, char **args, Options ops, UNUSED(int func))
 
     return 0;
 }
+/* }}} */
+/* FUNCTION: bin_zgdbmclear {{{ */
 
 /**/
 static int
-bin_zgdbmclear(char *nam, char **args, Options ops, UNUSED(int func))
+zgdbmclear_cmd(char *pmname, char *key)
 {
     Param pm;
-    char *pmname, *key;
-
-    pmname = *args++;
-    key = *args;
 
     if (!pmname) {
-        zwarnnam(nam, "parameter name (whose path is to be written to $REPLY) is required");
+        zwarn("parameter name (whose read-cache is to be cleared) is required");
+        return 1;
+    }
+    if (!key) {
+        zwarn("hash-key (whose read-cache is to be cleared) is required");
         return 1;
     }
 
     pm = (Param) paramtab->getnode(paramtab, pmname);
     if(!pm) {
-        zwarnnam(nam, "no such parameter: %s", pmname);
+        zwarnnam("no such parameter: %s", pmname);
         return 1;
     }
 
     if (pm->gsu.h != &gdbm_hash_gsu) {
-        zwarnnam(nam, "not a tied gdbm parameter: %s", pmname);
+        zwarnnam("not a tied gdbm parameter: %s", pmname);
         return 1;
     }
 
@@ -298,6 +394,8 @@ bin_zgdbmclear(char *nam, char **args, Options ops, UNUSED(int func))
 
     return 0;
 }
+/* }}} */
+/* FUNCTION: gdbmgetfn {{{ */
 
 /*
  * The param is actual param in hash – always, because
@@ -328,7 +426,7 @@ gdbmgetfn(Param pm)
      * - if we are writers, we for sure have newest copy of data
      * - if we are readers, we for sure have newest copy of data
      */
-    if ( pm->node.flags & PM_UPTODATE ) {
+    if ((pm->node.flags & PM_UPTODATE) && ((struct gsu_scalar_ext *)pm->gsu.s)->use_cache) {
         return pm->u.str ? pm->u.str : (char *) hcalloc(1);
     }
 
@@ -356,6 +454,8 @@ gdbmgetfn(Param pm)
         /* Metafy returned data. All fits - metafy
          * can obtain data length to avoid using \0 */
         pm->u.str = metafy(content.dptr, content.dsize, META_DUP);
+        /* gdbm allocates with malloc */
+        free(content.dptr);
 
         /* Free key, restoring its original length */
         set_length(umkey, umlen);
@@ -372,6 +472,8 @@ gdbmgetfn(Param pm)
     /* Can this be "" ? */
     return (char *) hcalloc(1);
 }
+/* }}} */
+/* FUNCTION: gdbmsetfn {{{ */
 
 /**/
 static void
@@ -398,7 +500,7 @@ gdbmsetfn(Param pm, char *val)
 
     /* Database */
     dbf = ((struct gsu_scalar_ext *)pm->gsu.s)->dbf;
-    if (dbf) {
+    if (dbf && no_database_action == 0) {
         int umlen = 0;
         char *umkey = unmetafy_zalloc(pm->node.nam,&umlen);
 
@@ -409,7 +511,7 @@ gdbmsetfn(Param pm, char *val)
             /* Unmetafy with exact zalloc size */
             char *umval = unmetafy_zalloc(val,&umlen);
 
-            /* Store */
+            /* store */
             content.dptr = umval;
             content.dsize = umlen;
             (void)gdbm_store(dbf, key, content, GDBM_REPLACE);
@@ -426,7 +528,8 @@ gdbmsetfn(Param pm, char *val)
         zsfree(umkey);
     }
 }
-
+/* }}} */
+/* FUNCTION: gdbmunsetfn {{{ */
 /**/
 static void
 gdbmunsetfn(Param pm, UNUSED(int um))
@@ -434,6 +537,8 @@ gdbmunsetfn(Param pm, UNUSED(int um))
     /* Set with NULL */
     gdbmsetfn(pm, NULL);
 }
+/* }}} */
+/* FUNCTION: getgdbmnode {{{ */
 
 /**/
 static HashNode
@@ -469,12 +574,14 @@ getgdbmnode(HashTable ht, const char *name)
 
     return (HashNode) val_pm;
 }
+/* }}} */
+/* FUNCTION: scangdbmkeys {{{ */
 
 /**/
 static void
 scangdbmkeys(HashTable ht, ScanFunc func, int flags)
 {
-    datum key;
+    datum key, prev_key;
     GDBM_FILE dbf = ((struct gsu_scalar_ext *)ht->tmpdata)->dbf;
 
     /* Iterate keys adding them to hash, so
@@ -489,14 +596,18 @@ scangdbmkeys(HashTable ht, ScanFunc func, int flags)
         HashNode hn = getgdbmnode(ht, zkey);
         zsfree( zkey );
 
-	func(hn, flags);
+        func(hn, flags);
 
         /* Iterate - no problem as interfacing Param
          * will do at most only fetches, not stores */
+        prev_key = key;
         key = gdbm_nextkey(dbf, key);
+        free(prev_key.dptr);
     }
 
 }
+/* }}} */
+/* FUNCTION: gdbmhashsetfn {{{ */
 
 /*
  * Replace database with new hash
@@ -512,54 +623,58 @@ gdbmhashsetfn(Param pm, HashTable ht)
     datum key, content;
 
     if (!pm->u.hash || pm->u.hash == ht)
-	return;
+        return;
 
     if (!(dbf = ((struct gsu_scalar_ext *)pm->u.hash->tmpdata)->dbf))
-	return;
+        return;
 
     key = gdbm_firstkey(dbf);
     while (key.dptr) {
-	queue_signals();
-	(void)gdbm_delete(dbf, key);
-	free(key.dptr);
-	unqueue_signals();
-	key = gdbm_firstkey(dbf);
+        queue_signals();
+        (void)gdbm_delete(dbf, key);
+        free(key.dptr);
+        unqueue_signals();
+        key = gdbm_firstkey(dbf);
     }
 
     /* just deleted everything, clean up */
     (void)gdbm_reorganize(dbf);
 
-    if (!ht)
-	return;
+    no_database_action = 1;
+    emptyhashtable(pm->u.hash);
+    no_database_action = 0;
 
-     /* Put new strings into database, waiting
-      * for their interfacing-Params to be created */
+    if (!ht)
+        return;
+
+    /* Put new strings into database, waiting
+     * for their interfacing-Params to be created */
 
     for (i = 0; i < ht->hsize; i++)
-	for (hn = ht->nodes[i]; hn; hn = hn->next) {
-	    struct value v;
+        for (hn = ht->nodes[i]; hn; hn = hn->next) {
+            struct value v;
 
-	    v.isarr = v.flags = v.start = 0;
-	    v.end = -1;
-	    v.arr = NULL;
-	    v.pm = (Param) hn;
+            v.isarr = v.flags = v.start = 0;
+            v.end = -1;
+            v.arr = NULL;
+            v.pm = (Param) hn;
 
             /* Unmetafy key */
             int umlen = 0;
             char *umkey = unmetafy_zalloc(v.pm->node.nam,&umlen);
 
-	    key.dptr = umkey;
-	    key.dsize = umlen;
+            key.dptr = umkey;
+            key.dsize = umlen;
 
-	    queue_signals();
+            queue_signals();
 
             /* Unmetafy */
             char *umval = unmetafy_zalloc(getstrvalue(&v),&umlen);
 
             /* Store */
-	    content.dptr = umval;
-	    content.dsize = umlen;
-	    (void)gdbm_store(dbf, key, content, GDBM_REPLACE);	
+            content.dptr = umval;
+            content.dsize = umlen;
+            (void)gdbm_store(dbf, key, content, GDBM_REPLACE);
 
             /* Free - unmetafy_zalloc allocates exact required
              * space, however unmetafied string can have zeros
@@ -569,9 +684,11 @@ gdbmhashsetfn(Param pm, HashTable ht)
             set_length(umkey, key.dsize);
             zsfree(umkey);
 
-	    unqueue_signals();
-	}
+            unqueue_signals();
+        }
 }
+/* }}} */
+/* FUNCTION: gdbmuntie {{{*/
 
 /**/
 static void
@@ -581,7 +698,7 @@ gdbmuntie(Param pm)
     HashTable ht = pm->u.hash;
 
     if (dbf) { /* paranoia */
-	fdtable[gdbm_fdesc(dbf)] = FDT_UNUSED;
+        fdtable[gdbm_fdesc(dbf)] = FDT_UNUSED;
         gdbm_close(dbf);
 
         /* Let hash fields know there's no backend */
@@ -598,7 +715,8 @@ gdbmuntie(Param pm)
     pm->node.flags &= ~(PM_SPECIAL|PM_READONLY);
     pm->gsu.h = &stdhash_gsu;
 }
-
+/* }}} */
+/* FUNCTION: gdbmhashunsetfn {{{ */
 /**/
 static void
 gdbmhashunsetfn(Param pm, UNUSED(int exp))
@@ -620,22 +738,29 @@ gdbmhashunsetfn(Param pm, UNUSED(int exp))
 
     pm->node.flags |= PM_UNSET;
 }
+/* }}} */
+/* ARRAY: module_features {{{ */
+static struct features module_features =
+    {
+     NULL, 0,
+     NULL, 0,
+     NULL, 0,
+     patab, sizeof(patab)/sizeof(*patab),
+     0
+    };
+/* }}} */
 
-static struct features module_features = {
-    bintab, sizeof(bintab)/sizeof(*bintab),
-    NULL, 0,
-    NULL, 0,
-    patab, sizeof(patab)/sizeof(*patab),
-    0
-};
+/* FUNCTION: setup_ {{{ */
 
 /**/
 int
 setup_(UNUSED(Module m))
 {
+    zsh_db_register_backend("db/gdbm", gdbm_main_entry);
     return 0;
 }
-
+/* }}} */
+/* FUNCTION: features_ {{{ */
 /**/
 int
 features_(Module m, char ***features)
@@ -643,6 +768,8 @@ features_(Module m, char ***features)
     *features = featuresarray(m, &module_features);
     return 0;
 }
+/* }}} */
+/* FUNCTION: enables_ {{{ */
 
 /**/
 int
@@ -650,6 +777,8 @@ enables_(Module m, int **enables)
 {
     return handlefeatures(m, &module_features, enables);
 }
+/* }}} */
+/* FUNCTION: boot_ {{{ */
 
 /**/
 int
@@ -658,25 +787,33 @@ boot_(UNUSED(Module m))
     zgdbm_tied = zshcalloc((1) * sizeof(char *));
     return 0;
 }
+/* }}} */
+/* FUNCTION: cleanup_ {{{ */
 
 /**/
 int
 cleanup_(Module m)
 {
+    zsh_db_unregister_backend("db/gdbm");
+
     /* This frees `zgdbm_tied` */
     return setfeatureenables(m, &module_features, NULL);
 }
-
+/* }}} */
+/* FUNCTION: finish_ {{{ */
 /**/
 int
 finish_(UNUSED(Module m))
 {
     return 0;
 }
+/* }}} */
 
 /*********************
  * Utility functions *
  *********************/
+
+/* FUNCTION: createhash {{{ */
 
 static Param createhash( char *name, int flags ) {
     Param pm;
@@ -688,7 +825,7 @@ static Param createhash( char *name, int flags ) {
     }
 
     if (pm->old)
-	pm->level = locallevel;
+        pm->level = locallevel;
 
     /* This creates standard hash. */
     ht = pm->u.hash = newparamtable(32, name);
@@ -698,12 +835,42 @@ static Param createhash( char *name, int flags ) {
         zwarnnam(name, "Out of memory when allocating hash");
     }
 
+    /* Does free Param (unsetfn is called) */
+    ht->freenode = myfreeparamnode;
+
     /* These provide special features */
     ht->getnode = ht->getnode2 = getgdbmnode;
     ht->scantab = scangdbmkeys;
 
     return pm;
 }
+/* }}} */
+/* FUNCTION: myfreeparamnode {{{ */
+
+static void
+myfreeparamnode(HashNode hn)
+{
+    Param pm = (Param) hn;
+
+    /* Upstream: The second argument of unsetfn() is used by modules to
+     * differentiate "exp"licit unset from implicit unset, as when
+     * a parameter is going out of scope.  It's not clear which
+     * of these applies here, but passing 1 has always worked.
+     */
+
+    /* if (delunset) */
+    pm->gsu.s->unsetfn(pm, 1);
+
+    zsfree(pm->node.nam);
+    /* If this variable was tied by the user, ename was ztrdup'd */
+    if (pm->node.flags & PM_TIED && pm->ename) {
+        zsfree(pm->ename);
+        pm->ename = NULL;
+    }
+    zfree(pm, sizeof(struct param));
+}
+/* }}} */
+/* FUNCTION: append_tied_name {{{ */
 
 /*
  * Adds parameter name to `zgdbm_tied`
@@ -729,6 +896,8 @@ static int append_tied_name( const char *name ) {
 
     return 0;
 }
+/* }}} */
+/* FUNCTION: remove_tied_name {{{ */
 
 /*
  * Removes parameter name from `zgdbm_tied`
@@ -777,6 +946,8 @@ static int remove_tied_name( const char *name ) {
 
     return 0;
 }
+/* }}} */
+/* FUNCTION: unmetafy_zalloc {{{ */
 
 /*
  * Unmetafy that:
@@ -807,7 +978,8 @@ static char *unmetafy_zalloc(const char *to_copy, int *new_len) {
 
     return to_return;
 }
-
+/* }}} */
+/* FUNCTION: set_length {{{ */
 /*
  * For zsh-allocator, rest of Zsh seems to use
  * free() instead of zsfree(), and such length
@@ -819,6 +991,31 @@ static void set_length(char *buf, int size) {
         buf[size]=' ';
     }
 }
+/* }}} */
+/* FUNCTION: is_tied_cmd {{{ */
+static int
+is_tied_cmd(char *pmname)
+{
+    Param pm = (Param) paramtab->getnode(paramtab, pmname);
+    if(!pm) {
+        return 1; /* false */
+    }
+
+    return 1 - is_tied(pm); /* negation for shell-code */
+}
+/* }}} */
+/* FUNCTION: is_tied {{{ */
+
+static int
+is_tied(Param pm)
+{
+    if (pm->gsu.h == &gdbm_hash_gsu ) {
+        return 1;
+    }
+
+    return 0;
+}
+/* }}} */
 
 #else
 # error no gdbm
